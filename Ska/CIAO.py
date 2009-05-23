@@ -1,4 +1,5 @@
-import Util.File
+import re
+import Ska.File
 
 def localize_param_files(env, dirname=None): 
     """Make a temporary directory and put it at the head of env['PFILES'] so
@@ -8,9 +9,9 @@ def localize_param_files(env, dirname=None):
     >>> ciaoenv = Shell.getenv('. /soft/ciao/bin/ciao.bash')
     >>> pfiles_dir = Util.CIAO.localize_param_files(ciaoenv)
     
-    @param env: (delta) environment mapping.  Must have PFILES.
-    @param dirname: location of temporary directory (default=system tmp dir)
-    @return: TempDir object.  The temp dir is deleted when TempDir object
+    :param env: (delta) environment mapping.  Must have PFILES.
+    :param dirname: location of temporary directory (default=system tmp dir)
+    :returns: TempDir object.  The temp dir is deleted when TempDir object
              gets destroyed or goes out of scope.
     """
     try:
@@ -18,29 +19,89 @@ def localize_param_files(env, dirname=None):
     except KeyError:
         raise ValueError('PFILES key must be defined.')
 
-    tempdir = Util.File.TempDir(dir=dirname)
+    tempdir = Ska.File.TempDir(dir=dirname)
     env['PFILES'] = ';'.join([tempdir.name] + pfiles)
 
     return tempdir
     
-def dmmerge_files():
-    """Placeholder for dmmerge routine.  Probably not needed, prefer to use .lis files"""
-    raise ValueError('This routine is no implemented yet.')
-## 	if (test_dep(-target => $out_files[0], -depend => \@files)) {
-## 	    # Multiple files, need to merge them
-## 	    my $list = join ',', @files;
-## 	    my $ok = run_tool("dmmerge",
-## 			      infile => $list,
-## 			      columnList => '',
-## 			      outfile => $out_files[0],
-## 			      outBlock => '',
-## 			      clobber => 'yes',
-## 			      lookupTab => "$ENV{ASCDS_CALIB}/dmmerge_header_lookup.txt",
-## 			      { timeout => $self->cfg->get_timeout,
-## 				paste => 1,
-## 				loud => 1,
-## 			      }
-## 			     );
-## 	    return unless $ok;
-## 	}
-##     }
+def dmcoords(evtfile, asolfile, pos, coordsys, celfmt='deg', env=None):
+    """Run dmcoords for coordinates ``pos`` which are in coordinate system ``coord``
+    and return results as a dict.
+
+    The ``pos`` parameter must be a list with values interpreted according to
+    the ``coordsys`` parameter:
+
+    =========  =====================
+    coordsys   pos list values
+    =========  =====================
+    cel        ra, dec
+    sky        x, y
+    det        detx, dety
+    logical    chip_id, chipx, chipy
+    msc        theta, phi
+    =========  =====================
+
+    :param evtfile: x-ray event file
+    :param asolfile: aspect solution file or list
+    :param pos: list of coordinates
+    :param coordsys: input coordinate system (cel|sky|det|logical|msc)
+    :param celfmt: format for in/out RA and dec (deg|hms)
+    :param env: CIAO environment dict (optional)
+
+    :returns: dict corresponding to dmcoords parameter list and values
+    """
+    parmap = dict(cel=['ra', 'dec'],
+                  sky=['x', 'y'],
+                  det=['detx', 'dety'],
+                  logical=['chip_id', 'chipx', 'chipy'],
+                  msc=['theta', 'phi'])
+
+    Ska.Shell.bash('punlearn dmcoords', env=env)
+
+    if coordsys not in parmap:
+        raise ValueError('coordsys=%s is not in allowed values %s'
+                         % (coordsys, str(parmap.keys())))
+
+    # Generate pset dmcoords par=val pairs for input pos and coordsys
+    parsets = ['%s=%s' % (par, str(val)) for (par, val) in zip(parmap[coordsys], pos)]
+    parsets.append('celfmt="%s"' % celfmt)
+    cmd = 'pset dmcoords ' + ' '.join(parsets)
+    Ska.Shell.bash(cmd, env=env)
+
+    # Run dmcoords cmd to do conversion.  This should run silently, any output
+    # indicates a problem.  Note also that dmcoords does not return non-zero
+    # exit status on error like most tools (bug reported to ascds_help).
+    cmd = 'dmcoords infile="%s" asolfile="%s" celfmt="%s" option="%s"' \
+          % (evtfile, asolfile, celfmt, coordsys)
+    print cmd
+    out = Ska.Shell.bash(cmd, env=env)
+    if out:
+        raise ValueError('"%s" produced output:\n %s' % (cmd, '\n'.join(out)))
+
+    # Values determined by dmcoords
+    vals = dict()
+
+    # Dump, parse and convert the parameter values in par='val' pairs
+    for parval in Ska.Shell.bash('pdump dmcoords', env=env):
+        match = re.match(r"(\w+)='(.+)'", parval)
+        if match:
+            par, val = match.groups()
+            try:
+                val = int(val)
+            except ValueError:
+                try:
+                    val = float(val)
+                except ValueError:
+                    pass
+            vals[par] = val
+
+    return vals
+            
+    
+    
+
+    
+    
+
+    
+        
