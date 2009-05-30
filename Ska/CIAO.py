@@ -1,5 +1,9 @@
+import tempfile
 import re
+
 import Ska.File
+import Ska.Shell
+import Ska.astro
 
 def localize_param_files(env, dirname=None): 
     """Make a temporary directory and put it at the head of env['PFILES'] so
@@ -53,7 +57,8 @@ def dmcoords(evtfile, asolfile, pos, coordsys, celfmt='deg', env=None):
     parmap = dict(cel=['ra', 'dec'],
                   sky=['x', 'y'],
                   det=['detx', 'dety'],
-                  logical=['chip_id', 'chipx', 'chipy'],
+                  chip=['chip_id', 'chipx', 'chipy'],
+                  logical=['logicalx', 'logicaly'],
                   msc=['theta', 'phi'])
 
     Ska.Shell.bash('punlearn dmcoords', env=env)
@@ -73,7 +78,6 @@ def dmcoords(evtfile, asolfile, pos, coordsys, celfmt='deg', env=None):
     # exit status on error like most tools (bug reported to ascds_help).
     cmd = 'dmcoords infile="%s" asolfile="%s" celfmt="%s" option="%s"' \
           % (evtfile, asolfile, celfmt, coordsys)
-    print cmd
     out = Ska.Shell.bash(cmd, env=env)
     if out:
         raise ValueError('"%s" produced output:\n %s' % (cmd, '\n'.join(out)))
@@ -96,12 +100,39 @@ def dmcoords(evtfile, asolfile, pos, coordsys, celfmt='deg', env=None):
             vals[par] = val
 
     return vals
-            
-    
-    
 
-    
-    
+def colden(ra, dec, env=None):
+    """Determine Galactic column density at specified ``ra`` and ``dec``.
+    This function calls the CIAO ``prop_colden_exe`` tool.
 
+    :param ra: right ascension (J2000)
+    :param dec: declination
+    :param env: CIAO environment vars
+
+    :returns: column density (10^22 cm^-2)
+    """
+    colden_in = tempfile.NamedTemporaryFile()  # Input to colden
+    colden_out = tempfile.NamedTemporaryFile()  # Output from colden
+    null = tempfile.NamedTemporaryFile()  # File to catch stdout from colden
+
+    eq = Ska.astro.Equatorial(ra, dec)
+    eq.delim = " "
+    colden_in.write('%s %s\n' % (eq.ra_hms, eq.dec_dms))
+    colden_in.flush()
     
-        
+    cmd = "prop_colden_exe d nrao f j2000 :%s:%s"  % (colden_in.name, colden_out.name)
+    out = Ska.Shell.bash(cmd, logfile=null, env=env)
+
+    gal_nh = None
+    for line in colden_out:
+	vals = line.split()
+        if (len(vals) >= 9 and vals[8] != '-' and
+            re.match(r'[-0-9.]+', vals[6]) and re.match(r'[-0-9.]+', vals[7])):
+            gal_nh = float(vals[8]) / 100. # Convert from 10^20 (colden) to 10^22 (sherpa)
+            break
+
+    if gal_nh is not None:
+        return gal_nh
+    else:
+        raise ValueError('Colden did not give valid NH')
+
