@@ -1,3 +1,5 @@
+"""Utilities useful within the CIAO environment"""
+
 import tempfile
 import re
 
@@ -10,8 +12,9 @@ def localize_param_files(env, dirname=None):
     CIAO parameters for this session are localized there.
 
     Usage::
-    >>> ciaoenv = Shell.getenv('. /soft/ciao/bin/ciao.bash')
-    >>> pfiles_dir = Util.CIAO.localize_param_files(ciaoenv)
+    
+      >>> ciaoenv = Shell.getenv('. /soft/ciao/bin/ciao.bash')
+      >>> pfiles_dir = Util.CIAO.localize_param_files(ciaoenv)
     
     :param env: (delta) environment mapping.  Must have PFILES.
     :param dirname: location of temporary directory (default=system tmp dir)
