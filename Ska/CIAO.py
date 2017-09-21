@@ -1,3 +1,4 @@
+# Licensed under a 3-clause BSD style license - see LICENSE.rst
 """Utilities useful within the CIAO environment"""
 
 import tempfile
